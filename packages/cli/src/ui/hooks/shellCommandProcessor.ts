@@ -7,12 +7,13 @@
 import { spawn } from 'child_process';
 import { StringDecoder } from 'string_decoder';
 import type { HistoryItemWithoutId } from '../types.js';
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { Config, GeminiClient } from '@google/gemini-cli-core';
 import { type PartListUnion } from '@google/genai';
 import { formatMemoryUsage } from '../utils/formatters.js';
 import { isBinary } from '../utils/textUtils.js';
 import { UseHistoryManagerReturn } from './useHistoryManager.js';
+import { useShellExecution } from '../contexts/ShellExecutionContext.js';
 import crypto from 'crypto';
 import path from 'path';
 import os from 'os';
@@ -21,6 +22,7 @@ import stripAnsi from 'strip-ansi';
 
 const OUTPUT_UPDATE_INTERVAL_MS = 1000;
 const MAX_OUTPUT_LENGTH = 10000;
+const LONG_RUNNING_THRESHOLD_MS = 60000; // 60 seconds
 
 /**
  * A structured result from a shell command execution.
@@ -214,6 +216,9 @@ export const useShellCommandProcessor = (
   config: Config,
   geminiClient: GeminiClient,
 ) => {
+  const { startExecution, endExecution, setLongRunning } = useShellExecution();
+  const longRunningTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleShellCommand = useCallback(
     (rawQuery: PartListUnion, abortSignal: AbortSignal): boolean => {
       if (typeof rawQuery !== 'string' || rawQuery.trim() === '') {
@@ -246,11 +251,27 @@ export const useShellCommandProcessor = (
       const execPromise = new Promise<void>((resolve) => {
         let lastUpdateTime = 0;
 
+        // Create a new AbortController that we can control
+        const commandAbortController = new AbortController();
+
+        // Link the provided abortSignal to our controller
+        abortSignal.addEventListener('abort', () => {
+          commandAbortController.abort();
+        });
+
+        // Update shell execution context
+        startExecution(rawQuery, commandAbortController);
+
+        // Set up long-running timer
+        longRunningTimerRef.current = setTimeout(() => {
+          setLongRunning(true);
+        }, LONG_RUNNING_THRESHOLD_MS);
+
         onDebugMessage(`Executing in ${targetDir}: ${commandToExecute}`);
         executeShellCommand(
           commandToExecute,
           targetDir,
-          abortSignal,
+          commandAbortController.signal,
           (streamedOutput) => {
             // Throttle pending UI updates to avoid excessive re-renders.
             if (Date.now() - lastUpdateTime > OUTPUT_UPDATE_INTERVAL_MS) {
@@ -324,6 +345,15 @@ export const useShellCommandProcessor = (
             );
           })
           .finally(() => {
+            // Clean up timer
+            if (longRunningTimerRef.current) {
+              clearTimeout(longRunningTimerRef.current);
+              longRunningTimerRef.current = null;
+            }
+
+            // Update context to indicate command finished
+            endExecution();
+
             if (pwdFilePath && fs.existsSync(pwdFilePath)) {
               fs.unlinkSync(pwdFilePath);
             }
@@ -341,6 +371,9 @@ export const useShellCommandProcessor = (
       setPendingHistoryItem,
       onExec,
       geminiClient,
+      startExecution,
+      endExecution,
+      setLongRunning,
     ],
   );
 

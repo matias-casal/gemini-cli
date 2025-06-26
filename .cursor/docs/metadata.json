@@ -1,0 +1,50 @@
+{
+  "name": "gemini-cli-documentation",
+  "version": "1.0.0",
+  "generatedAt": "2025-06-26T00:42:14.432Z",
+  "purpose": "Complete documentation for LLM consumption",
+  "structure": {
+    "layers": {
+      "layer1": {
+        "name": "Quick Reference",
+        "path": "llm-layers/1-quick-reference",
+        "description": "High-level guides and quick start"
+      },
+      "layer2": {
+        "name": "Architecture & Components",
+        "path": "llm-layers/2-component-details",
+        "description": "System design and module documentation"
+      },
+      "layer3": {
+        "name": "Implementation Reference",
+        "path": "llm-layers/3-implementation-reference",
+        "description": "Detailed API and code documentation"
+      }
+    },
+    "additional": {
+      "tools": {
+        "name": "Tools Documentation",
+        "path": "generated/tools",
+        "description": "Complete tool reference with examples"
+      },
+      "structure": {
+        "name": "Project Structure",
+        "path": "generated/structure.json",
+        "description": "Machine-readable file structure"
+      }
+    }
+  },
+  "navigation": {
+    "entryPoint": "index.md",
+    "layerIndexes": [
+      "llm-layers/1-quick-reference/index.md",
+      "llm-layers/2-component-details/index.md",
+      "llm-layers/3-implementation-reference/index.md"
+    ]
+  },
+  "statistics": {
+    "totalFiles": 376,
+    "generationScripts": 9,
+    "documentationLayers": 3
+  }
+}

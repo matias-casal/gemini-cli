@@ -1,0 +1,10 @@
+{
+  "start": "index.md",
+  "layers": {
+    "quickStart": "llm-layers/1-quick-reference/index.md",
+    "architecture": "llm-layers/2-component-details/index.md",
+    "implementation": "llm-layers/3-implementation-reference/index.md"
+  },
+  "tools": "generated/tools/index.md",
+  "structure": "generated/structure.json"
+}

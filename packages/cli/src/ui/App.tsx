@@ -24,10 +24,13 @@ import { useThemeCommand } from './hooks/useThemeCommand.js';
 import { useAuthCommand } from './hooks/useAuthCommand.js';
 import { useEditorSettings } from './hooks/useEditorSettings.js';
 import { useSlashCommandProcessor } from './hooks/slashCommandProcessor.js';
+import { useShellCancellation } from './hooks/useShellCancellation.js';
 import { useAutoAcceptIndicator } from './hooks/useAutoAcceptIndicator.js';
 import { useConsoleMessages } from './hooks/useConsoleMessages.js';
+import { useSaveChatDialog } from './hooks/useSaveChatDialog.js';
 import { Header } from './components/Header.js';
 import { LoadingIndicator } from './components/LoadingIndicator.js';
+import { LongRunningCommandIndicator } from './components/LongRunningCommandIndicator.js';
 import { AutoAcceptIndicator } from './components/AutoAcceptIndicator.js';
 import { ShellModeIndicator } from './components/ShellModeIndicator.js';
 import { InputPrompt } from './components/InputPrompt.js';
@@ -36,6 +39,7 @@ import { ThemeDialog } from './components/ThemeDialog.js';
 import { AuthDialog } from './components/AuthDialog.js';
 import { AuthInProgress } from './components/AuthInProgress.js';
 import { EditorSettingsDialog } from './components/EditorSettingsDialog.js';
+import { SaveChatDialog } from './components/SaveChatDialog.js';
 import { Colors } from './colors.js';
 import { Help } from './components/Help.js';
 import { loadHierarchicalGeminiMemory } from '../config/config.js';
@@ -62,6 +66,7 @@ import {
   SessionStatsProvider,
   useSessionStats,
 } from './contexts/SessionContext.js';
+import { ShellExecutionContextProvider } from './contexts/ShellExecutionContext.js';
 import { useGitBranchName } from './hooks/useGitBranchName.js';
 import { useTextBuffer } from './components/shared/text-buffer.js';
 import * as fs from 'fs';
@@ -70,6 +75,7 @@ import { checkForUpdates } from './utils/updateCheck.js';
 import ansiEscapes from 'ansi-escapes';
 import { OverflowProvider } from './contexts/OverflowContext.js';
 import { ShowMoreLines } from './components/ShowMoreLines.js';
+import { formatDuration } from './utils/formatters.js';
 
 const CTRL_EXIT_PROMPT_DURATION_MS = 1000;
 
@@ -81,7 +87,9 @@ interface AppProps {
 
 export const AppWrapper = (props: AppProps) => (
   <SessionStatsProvider>
-    <App {...props} />
+    <ShellExecutionContextProvider>
+      <App {...props} />
+    </ShellExecutionContextProvider>
   </SessionStatsProvider>
 );
 
@@ -133,6 +141,49 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
     () => consoleMessages.filter((msg) => msg.type === 'error').length,
     [consoleMessages],
   );
+
+  const shellCancellation = useShellCancellation();
+
+  const {
+    isSaveDialogOpen,
+    openSaveDialog,
+    handleSave,
+    handleDontSave,
+    handleCancel,
+  } = useSaveChatDialog(
+    config.getSessionId() || '',
+    history,
+    () => config.getGeminiClient()?.getChat()?.getHistory() || [],
+  );
+
+  const performFinalExit = useCallback(
+    (commandName = 'quit') => {
+      const now = new Date();
+      const { sessionStartTime, cumulative } = sessionStats;
+      const wallDuration = now.getTime() - sessionStartTime.getTime();
+      setQuittingMessages([
+        {
+          type: 'user',
+          text: `/${commandName}`,
+          id: now.getTime() - 1,
+        },
+        {
+          type: 'quit',
+          stats: cumulative,
+          duration: formatDuration(wallDuration),
+          id: now.getTime(),
+        },
+      ]);
+      setTimeout(() => {
+        process.exit(0);
+      }, 100);
+    },
+    [sessionStats, setQuittingMessages],
+  );
+
+  const requestQuit = useCallback(() => {
+    openSaveDialog(performFinalExit);
+  }, [openSaveDialog, performFinalExit]);
 
   const {
     isThemeDialogOpen,
@@ -274,6 +325,7 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
     toggleCorgiMode,
     showToolDescriptions,
     setQuittingMessages,
+    requestQuit,
   );
   const pendingHistoryItems = [...pendingSlashCommandHistoryItems];
 
@@ -313,14 +365,7 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
         if (timerRef.current) {
           clearTimeout(timerRef.current);
         }
-        const quitCommand = slashCommands.find(
-          (cmd) => cmd.name === 'quit' || cmd.altName === 'exit',
-        );
-        if (quitCommand) {
-          quitCommand.action('quit', '', '');
-        } else {
-          process.exit(0);
-        }
+        requestQuit();
       } else {
         setPressedOnce(true);
         timerRef.current = setTimeout(() => {
@@ -329,7 +374,7 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
         }, CTRL_EXIT_PROMPT_DURATION_MS);
       }
     },
-    [slashCommands],
+    [requestQuit],
   );
 
   useInput((input: string, key: InkKeyType) => {
@@ -366,7 +411,12 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
         handleSlashCommand(newValue ? '/mcp desc' : '/mcp nodesc');
       }
     } else if (key.ctrl && (input === 'c' || input === 'C')) {
-      handleExit(ctrlCPressedOnce, setCtrlCPressedOnce, ctrlCTimerRef);
+      // Check if shell cancellation should handle this
+      const handled = shellCancellation.handleCtrlC();
+      if (!handled) {
+        // Not executing a shell command, use normal exit flow
+        handleExit(ctrlCPressedOnce, setCtrlCPressedOnce, ctrlCTimerRef);
+      }
     } else if (key.ctrl && (input === 'd' || input === 'D')) {
       if (buffer.text.length > 0) {
         // Do nothing if there is text in the input.
@@ -709,6 +759,14 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
                 onExit={exitEditorDialog}
               />
             </Box>
+          ) : isSaveDialogOpen ? (
+            <Box flexDirection="column">
+              <SaveChatDialog
+                onSave={handleSave}
+                onDontSave={handleDontSave}
+                onCancel={handleCancel}
+              />
+            </Box>
           ) : (
             <>
               <LoadingIndicator
@@ -725,6 +783,7 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
                 }
                 elapsedTime={elapsedTime}
               />
+              <LongRunningCommandIndicator />
               <Box
                 marginTop={1}
                 display="flex"
@@ -735,7 +794,11 @@ const App = ({ config, settings, startupWarnings = [] }: AppProps) => {
                   {process.env.GEMINI_SYSTEM_MD && (
                     <Text color={Colors.AccentRed}>|⌐■_■| </Text>
                   )}
-                  {ctrlCPressedOnce ? (
+                  {shellCancellation.getMessage() ? (
+                    <Text color={Colors.AccentYellow}>
+                      {shellCancellation.getMessage()}
+                    </Text>
+                  ) : ctrlCPressedOnce ? (
                     <Text color={Colors.AccentYellow}>
                       Press Ctrl+C again to exit.
                     </Text>

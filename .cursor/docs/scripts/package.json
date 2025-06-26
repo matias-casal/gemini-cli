@@ -1,0 +1,18 @@
+{
+  "name": "gemini-cli-documentation-generator",
+  "version": "1.0.0",
+  "description": "Documentation generation scripts for gemini-cli",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "install-deps": "npm install",
+    "generate": "node generate-all.js"
+  },
+  "dependencies": {
+    "@typescript-eslint/parser": "^8.20.0",
+    "@typescript-eslint/typescript-estree": "^8.20.0",
+    "typescript": "^5.7.3",
+    "glob": "^10.4.5",
+    "minimatch": "^10.0.1"
+  }
+}

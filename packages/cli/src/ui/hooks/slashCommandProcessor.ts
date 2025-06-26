@@ -76,6 +76,7 @@ export const useSlashCommandProcessor = (
   toggleCorgiMode: () => void,
   showToolDescriptions: boolean = false,
   setQuittingMessages: (message: HistoryItem[]) => void,
+  requestQuit: () => void,
 ) => {
   const session = useSessionStats();
   const gitService = useMemo(() => {
@@ -772,28 +773,8 @@ export const useSlashCommandProcessor = (
         name: 'quit',
         altName: 'exit',
         description: 'exit the cli',
-        action: async (mainCommand, _subCommand, _args) => {
-          const now = new Date();
-          const { sessionStartTime, cumulative } = session.stats;
-          const wallDuration = now.getTime() - sessionStartTime.getTime();
-
-          setQuittingMessages([
-            {
-              type: 'user',
-              text: `/${mainCommand}`,
-              id: now.getTime() - 1,
-            },
-            {
-              type: 'quit',
-              stats: cumulative,
-              duration: formatDuration(wallDuration),
-              id: now.getTime(),
-            },
-          ]);
-
-          setTimeout(() => {
-            process.exit(0);
-          }, 100);
+        action: () => {
+          requestQuit();
         },
       },
       {
@@ -995,6 +976,7 @@ export const useSlashCommandProcessor = (
     setQuittingMessages,
     pendingCompressionItemRef,
     setPendingCompressionItem,
+    requestQuit,
   ]);
 
   const handleSlashCommand = useCallback(
